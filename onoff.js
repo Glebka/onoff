@@ -1,21 +1,21 @@
-'use strict';
+"use strict";
 
-const fs = require('fs');
-const debounce = require('lodash.debounce');
-const Epoll = require('epoll').Epoll;
+const fs = require("fs");
+const debounce = require("lodash.debounce");
+//const Epoll = require('epoll').Epoll;
 
-const GPIO_ROOT_PATH = '/sys/class/gpio/';
+const GPIO_ROOT_PATH = "/sys/class/gpio/";
 
-const HIGH_BUF = Buffer.from('1');
-const LOW_BUF = Buffer.from('0');
+const HIGH_BUF = Buffer.from("1");
+const LOW_BUF = Buffer.from("0");
 
 const HIGH = 1;
 const LOW = 0;
 
-const exportGpio = gpio => {
+const exportGpio = (gpio) => {
   if (!fs.existsSync(gpio._gpioPath)) {
     // The GPIO hasn't been exported yet so export it
-    fs.writeFileSync(GPIO_ROOT_PATH + 'export', '' + gpio._gpio);
+    fs.writeFileSync(GPIO_ROOT_PATH + "export", "" + gpio._gpio);
 
     return false;
   }
@@ -41,31 +41,32 @@ const exportGpio = gpio => {
 // sysfs files enabling those files to be accessed without root privileges.
 // This takes a while so wait for it to complete.
 const waitForGpioAccessPermission = (
-  gpio, direction, edge, gpioPreviouslyExported
+  gpio,
+  direction,
+  edge,
+  gpioPreviouslyExported
 ) => {
-  let permissionRequiredPaths = [
-    gpio._gpioPath + 'value',
-  ];
+  let permissionRequiredPaths = [gpio._gpioPath + "value"];
 
   if (gpioPreviouslyExported === false) {
-    permissionRequiredPaths.push(gpio._gpioPath + 'direction');
-    permissionRequiredPaths.push(gpio._gpioPath + 'active_low');
+    permissionRequiredPaths.push(gpio._gpioPath + "direction");
+    permissionRequiredPaths.push(gpio._gpioPath + "active_low");
 
     // On some systems the edge file will not exist if the GPIO does not
     // support interrupts
     // https://github.com/fivdi/onoff/issues/77#issuecomment-321980735
-    if (edge && direction === 'in') {
-      permissionRequiredPaths.push(gpio._gpioPath + 'edge');
+    if (edge && direction === "in") {
+      permissionRequiredPaths.push(gpio._gpioPath + "edge");
     }
   }
 
-  permissionRequiredPaths.forEach(path => {
+  permissionRequiredPaths.forEach((path) => {
     let tries = 0;
 
     while (true) {
       try {
         tries += 1;
-        const fd = fs.openSync(path, 'r+');
+        const fd = fs.openSync(path, "r+");
         fs.closeSync(fd);
         break;
       } catch (e) {
@@ -78,16 +79,20 @@ const waitForGpioAccessPermission = (
 };
 
 const configureGpio = (
-  gpio, direction, edge, options, gpioPreviouslyExported
+  gpio,
+  direction,
+  edge,
+  options,
+  gpioPreviouslyExported
 ) => {
-  const throwIfNeeded = err => {
+  const throwIfNeeded = (err) => {
     if (gpioPreviouslyExported === false) {
       throw err;
     }
   };
 
   try {
-    if (typeof options.activeLow === 'boolean') {
+    if (typeof options.activeLow === "boolean") {
       gpio.setActiveLow(options.activeLow);
     }
   } catch (err) {
@@ -96,11 +101,12 @@ const configureGpio = (
 
   try {
     const reconfigureDirection =
-      typeof options.reconfigureDirection === 'boolean' ?
-        options.reconfigureDirection : true;
+      typeof options.reconfigureDirection === "boolean"
+        ? options.reconfigureDirection
+        : true;
 
     const requestedDirection =
-      direction === 'high' || direction === 'low' ? 'out' : direction;
+      direction === "high" || direction === "low" ? "out" : direction;
 
     if (reconfigureDirection || gpio.direction() !== requestedDirection) {
       gpio.setDirection(direction);
@@ -113,7 +119,7 @@ const configureGpio = (
     // On some systems writing to the edge file for an output GPIO will
     // result in an "EIO, i/o error"
     // https://github.com/fivdi/onoff/issues/87
-    if (edge && direction === 'in') {
+    if (edge && direction === "in") {
       gpio.setEdge(edge);
     }
   } catch (err) {
@@ -121,7 +127,7 @@ const configureGpio = (
   }
 };
 
-const configureInterruptHandler = gpio => {
+/*const configureInterruptHandler = (gpio) => {
   // A poller is created for both inputs and outputs. A poller isn't
   // actually needed for an output but the setDirection method can be
   // invoked to change the direction of a GPIO from output to input and
@@ -129,9 +135,11 @@ const configureInterruptHandler = gpio => {
   const pollerEventHandler = (err, fd, events) => {
     const value = gpio.readSync();
 
-    if ((value === LOW && gpio._fallingEnabled) ||
-        (value === HIGH && gpio._risingEnabled)) {
-      gpio._listeners.slice(0).forEach(callback => {
+    if (
+      (value === LOW && gpio._fallingEnabled) ||
+      (value === HIGH && gpio._risingEnabled)
+    ) {
+      gpio._listeners.slice(0).forEach((callback) => {
         callback(err, value);
       });
     }
@@ -151,11 +159,11 @@ const configureInterruptHandler = gpio => {
   } else {
     gpio._poller = new Epoll(pollerEventHandler);
   }
-};
+};*/
 
 class Gpio {
   constructor(gpio, direction, edge, options) {
-    if (typeof edge === 'object' && !options) {
+    if (typeof edge === "object" && !options) {
       options = edge;
       edge = undefined;
     }
@@ -163,7 +171,7 @@ class Gpio {
     options = options || {};
 
     this._gpio = gpio;
-    this._gpioPath = GPIO_ROOT_PATH + 'gpio' + this._gpio + '/';
+    this._gpioPath = GPIO_ROOT_PATH + "gpio" + this._gpio + "/";
     this._debounceTimeout = options.debounceTimeout || 0;
     this._readBuffer = Buffer.alloc(16);
     this._readSyncBuffer = Buffer.alloc(16);
@@ -171,21 +179,19 @@ class Gpio {
 
     const gpioPreviouslyExported = exportGpio(this);
 
-    waitForGpioAccessPermission(
-      this, direction, edge, gpioPreviouslyExported
-    );
+    waitForGpioAccessPermission(this, direction, edge, gpioPreviouslyExported);
 
     configureGpio(this, direction, edge, options, gpioPreviouslyExported);
 
-    this._valueFd = fs.openSync(this._gpioPath + 'value', 'r+');
+    this._valueFd = fs.openSync(this._gpioPath + "value", "r+");
 
-    configureInterruptHandler(this);
+    // configureInterruptHandler(this);
   }
 
   read(callback) {
-    const readValue = callback => {
+    const readValue = (callback) => {
       fs.read(this._valueFd, this._readBuffer, 0, 1, 0, (err, bytes, buf) => {
-        if (typeof callback === 'function') {
+        if (typeof callback === "function") {
           if (err) {
             return callback(err);
           }
@@ -218,16 +224,14 @@ class Gpio {
   write(value, callback) {
     const writeValue = (value, callback) => {
       const writeBuffer = convertBitToBuffer(value);
-      fs.write(
-        this._valueFd, writeBuffer, 0, writeBuffer.length, 0, callback
-      );
+      fs.write(this._valueFd, writeBuffer, 0, writeBuffer.length, 0, callback);
     };
 
     if (callback) {
       writeValue(value, callback);
     } else {
       return new Promise((resolve, reject) => {
-        writeValue(value, err => {
+        writeValue(value, (err) => {
           if (err) {
             reject(err);
           } else {
@@ -246,17 +250,17 @@ class Gpio {
   watch(callback) {
     this._listeners.push(callback);
 
-    if (this._listeners.length === 1) {
+    /* if (this._listeners.length === 1) {
       this._poller.add(this._valueFd, Epoll.EPOLLPRI);
-    }
+    }*/
   }
 
   unwatch(callback) {
     if (this._listeners.length > 0) {
-      if (typeof callback !== 'function') {
+      if (typeof callback !== "function") {
         this._listeners = [];
       } else {
-        this._listeners = this._listeners.filter(listener => {
+        this._listeners = this._listeners.filter((listener) => {
           return callback !== listener;
         });
       }
@@ -272,33 +276,40 @@ class Gpio {
   }
 
   direction() {
-    return fs.readFileSync(this._gpioPath + 'direction').toString().trim();
+    return fs
+      .readFileSync(this._gpioPath + "direction")
+      .toString()
+      .trim();
   }
 
   setDirection(direction) {
-    fs.writeFileSync(this._gpioPath + 'direction', direction);
+    fs.writeFileSync(this._gpioPath + "direction", direction);
   }
 
   edge() {
-    return fs.readFileSync(this._gpioPath + 'edge').toString().trim();
+    return fs
+      .readFileSync(this._gpioPath + "edge")
+      .toString()
+      .trim();
   }
 
   setEdge(edge) {
-    fs.writeFileSync(this._gpioPath + 'edge', edge);
+    fs.writeFileSync(this._gpioPath + "edge", edge);
 
-    this._risingEnabled = edge === 'both' || edge === 'rising';
-    this._fallingEnabled = edge === 'both' || edge === 'falling';
+    this._risingEnabled = edge === "both" || edge === "rising";
+    this._fallingEnabled = edge === "both" || edge === "falling";
   }
 
   activeLow() {
     return convertBufferToBoolean(
-      fs.readFileSync(this._gpioPath + 'active_low')
+      fs.readFileSync(this._gpioPath + "active_low")
     );
   }
 
   setActiveLow(invert) {
     fs.writeFileSync(
-      this._gpioPath + 'active_low', convertBooleanToBuffer(!!invert)
+      this._gpioPath + "active_low",
+      convertBooleanToBuffer(!!invert)
     );
   }
 
@@ -306,7 +317,7 @@ class Gpio {
     this.unwatchAll();
     fs.closeSync(this._valueFd);
     try {
-      fs.writeFileSync(GPIO_ROOT_PATH + 'unexport', '' + this._gpio);
+      fs.writeFileSync(GPIO_ROOT_PATH + "unexport", "" + this._gpio);
     } catch (ignore) {
       // Flow of control always arrives here when cape_universal is enabled on
       // the bbb.
@@ -317,8 +328,8 @@ class Gpio {
     let fd;
 
     try {
-      fd = fs.openSync(GPIO_ROOT_PATH + 'export', fs.constants.O_WRONLY);
-    } catch(e) {
+      fd = fs.openSync(GPIO_ROOT_PATH + "export", fs.constants.O_WRONLY);
+    } catch (e) {
       // e.code === 'ENOENT' / 'EACCES' are most common
       // though any failure to open will also result in a gpio
       // failure to export.
@@ -333,15 +344,14 @@ class Gpio {
   }
 }
 
-const convertBitToBuffer = bit => convertBooleanToBuffer(bit === HIGH);
-const convertBufferToBit =
-  buffer => convertBufferToBoolean(buffer) ? HIGH : LOW;
+const convertBitToBuffer = (bit) => convertBooleanToBuffer(bit === HIGH);
+const convertBufferToBit = (buffer) =>
+  convertBufferToBoolean(buffer) ? HIGH : LOW;
 
-const convertBooleanToBuffer = boolean => boolean ? HIGH_BUF : LOW_BUF;
-const convertBufferToBoolean = buffer => buffer[0] === HIGH_BUF[0];
+const convertBooleanToBuffer = (boolean) => (boolean ? HIGH_BUF : LOW_BUF);
+const convertBufferToBoolean = (buffer) => buffer[0] === HIGH_BUF[0];
 
 Gpio.HIGH = HIGH;
 Gpio.LOW = LOW;
 
 module.exports.Gpio = Gpio;
-
